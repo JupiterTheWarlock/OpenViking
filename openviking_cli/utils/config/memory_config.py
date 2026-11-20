@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 from typing import Any, Dict, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, FilePath, field_validator, model_validator
 
 from openviking_cli.utils.logger import get_logger
 
@@ -40,8 +40,28 @@ class SessionAutoCommitConfig(BaseModel):
     )
 
 
+class CodexProjectEvidence(BaseModel):
+    account_id: str = Field(min_length=1)
+    user_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
+    files: list[FilePath] = Field(min_length=1, max_length=6)
+
+    @field_validator("files")
+    @classmethod
+    def require_absolute_files(cls, files):
+        if any(not path.is_absolute() for path in files):
+            raise ValueError("Codex project evidence paths must be absolute")
+        return files
+
+
 class MemoryConfig(BaseModel):
     """Memory configuration for OpenViking."""
+
+    session_extractor: Literal["builtin", "codex"] = Field(
+        default="builtin", description="Agent used for the initial session memory proposal."
+    )
+    codex_timeout_seconds: int = Field(default=120, ge=1, le=600)
+    codex_project_evidence: list[CodexProjectEvidence] = Field(default_factory=list)
 
     summary_budget_retry_enabled: bool = Field(
         default=True,

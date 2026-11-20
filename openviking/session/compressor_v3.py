@@ -26,6 +26,7 @@ from openviking.observability.reporting.facts import event_context
 from openviking.server.identity import RequestContext
 from openviking.session.memory import ExtractLoop, MemoryUpdater, StreamingMemoryUpdaterConfig
 from openviking.session.memory.agent_file import ensure_agent_file
+from openviking.session.memory.codex_extract_loop import CodexExtractLoop
 from openviking.session.memory.constants import (
     AGENT_EVOLUTION_MEMORY_TYPES,
     CASE_MEMORY_TYPE,
@@ -288,6 +289,7 @@ class SessionCompressorV3:
         context_provider: Optional[SessionExtractContextProvider] = None,
         vlm_config: VLMHandle | None = None,
         output_language_override: str | None = None,
+        session_id: str | None = None,
     ) -> ExtractLoop:
         if vlm_config is None:
             raise RuntimeError("SessionCompressorV3 requires an explicitly resolved VLM config")
@@ -304,13 +306,28 @@ class SessionCompressorV3:
                 vlm_config=vlm_config,
                 output_language_override=output_language_override,
             )
-        return ExtractLoop(
-            vlm=vlm,
-            viking_fs=viking_fs,
-            ctx=ctx,
-            context_provider=context_provider,
-            isolation_handler=isolation_handler,
-        )
+        memory_config = get_openviking_config().memory
+        loop_args = {
+            "vlm": vlm,
+            "viking_fs": viking_fs,
+            "ctx": ctx,
+            "context_provider": context_provider,
+            "isolation_handler": isolation_handler,
+        }
+        if memory_config.session_extractor == "codex":
+            files = [
+                path
+                for binding in memory_config.codex_project_evidence
+                if ctx
+                and session_id
+                and (binding.account_id, binding.user_id, binding.session_id)
+                == (ctx.account_id, ctx.user.user_id, session_id)
+                for path in binding.files
+            ]
+            return CodexExtractLoop(
+                **loop_args, files=files, timeout=memory_config.codex_timeout_seconds
+            )
+        return ExtractLoop(**loop_args)
 
     def _get_or_create_updater(self, registry, transaction_handle=None) -> MemoryUpdater:
         return MemoryUpdater(
@@ -739,6 +756,7 @@ class SessionCompressorV3:
         context_provider._isolation_handler = isolation_handler
 
         orchestrator = self._get_or_create_react(
+            session_id=session_id,
             ctx=ctx,
             messages=messages,
             latest_archive_overview=latest_archive_overview,

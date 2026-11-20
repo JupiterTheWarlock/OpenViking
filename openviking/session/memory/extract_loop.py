@@ -126,6 +126,8 @@ class ExtractLoop:
     3. If operations output: Return and finish
     """
 
+    output_format_override: Optional[str] = None
+
     def __init__(
         self,
         vlm: VLMBase,
@@ -254,7 +256,9 @@ class ExtractLoop:
             role_scope
         )
 
-        output_format = getattr(config.memory, "extraction_output_format", "python")
+        output_format = self.output_format_override or getattr(
+            config.memory, "extraction_output_format", "python"
+        )
         self._output_protocol = create_extraction_output_protocol(output_format)
         self._output_context = ExtractionOutputContext(
             operations_model=self._operations_model,
