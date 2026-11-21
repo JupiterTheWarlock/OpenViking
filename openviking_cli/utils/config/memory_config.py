@@ -1,5 +1,6 @@
 # Copyright (c) 2026 Beijing Volcano Engine Technology Co., Ltd.
 # SPDX-License-Identifier: AGPL-3.0
+from pathlib import Path
 from typing import Any, Dict, Literal
 
 from pydantic import BaseModel, Field, FilePath, field_validator, model_validator
@@ -64,7 +65,15 @@ class MemoryConfig(BaseModel):
     codex_project_evidence: list[ProjectEvidence] = Field(default_factory=list)
     claude_code_timeout_seconds: int = Field(default=120, ge=1, le=600)
     claude_code_model: str | None = Field(default=None, min_length=1)
+    claude_code_review_dir: Path | None = None
     claude_code_project_evidence: list[ProjectEvidence] = Field(default_factory=list)
+
+    @field_validator("claude_code_review_dir")
+    @classmethod
+    def require_absolute_review_directory(cls, directory):
+        if directory is not None and not directory.is_absolute():
+            raise ValueError("Claude Code review directory must be absolute")
+        return directory
 
     summary_budget_retry_enabled: bool = Field(
         default=True,

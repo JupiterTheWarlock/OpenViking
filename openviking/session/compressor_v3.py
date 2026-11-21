@@ -33,6 +33,7 @@ from openviking.session.memory import (
     codex_proposal,
 )
 from openviking.session.memory.agent_file import ensure_agent_file
+from openviking.session.memory.claude_review import ClaudeReview
 from openviking.session.memory.constants import (
     AGENT_EVOLUTION_MEMORY_TYPES,
     CASE_MEMORY_TYPE,
@@ -297,6 +298,7 @@ class SessionCompressorV3:
         vlm_config: VLMHandle | None = None,
         output_language_override: str | None = None,
         session_id: str | None = None,
+        archive_uri: str | None = None,
     ) -> ExtractLoop:
         if vlm_config is None:
             raise RuntimeError("SessionCompressorV3 requires an explicitly resolved VLM config")
@@ -324,8 +326,19 @@ class SessionCompressorV3:
         if memory_config.session_extractor == "builtin":
             return ExtractLoop(**loop_args)
         if memory_config.session_extractor == "claude_code":
+            review = None
+            if memory_config.claude_code_review_dir and ctx and session_id:
+                review = ClaudeReview.for_session(
+                    memory_config.claude_code_review_dir,
+                    ctx,
+                    session_id,
+                    archive_uri,
+                    partial(viking_fs.write_file, ctx=ctx) if archive_uri else None,
+                )
             propose = partial(
-                claude_code_proposal.request_proposal, model=memory_config.claude_code_model
+                claude_code_proposal.request_proposal,
+                model=memory_config.claude_code_model,
+                review=review,
             )
             bindings = memory_config.claude_code_project_evidence
             timeout = memory_config.claude_code_timeout_seconds
@@ -774,6 +787,7 @@ class SessionCompressorV3:
 
         orchestrator = self._get_or_create_react(
             session_id=session_id,
+            archive_uri=archive_uri,
             ctx=ctx,
             messages=messages,
             latest_archive_overview=latest_archive_overview,

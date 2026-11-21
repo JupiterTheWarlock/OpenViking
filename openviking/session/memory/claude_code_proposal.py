@@ -38,7 +38,7 @@ def result_proposal(output, tools, exit_code):
     return parse_proposal(result.get("structured_output"), tools)
 
 
-async def request_proposal(messages, tools, timeout, documents, images, *, model=None):
+async def request_proposal(messages, tools, timeout, documents, images, *, model=None, review=None):
     executable = shutil.which("claude")
     if not executable:
         raise RuntimeError("Claude Code CLI is missing from the service PATH")
@@ -74,14 +74,27 @@ async def request_proposal(messages, tools, timeout, documents, images, *, model
         "--settings",
         '{"disableAllHooks":true}',
         "--disable-slash-commands",
-        "--no-session-persistence",
     ]
     if model:
         args.extend(["--model", model])
-    with (
-        tempfile.TemporaryDirectory(prefix="ov-claude-") as directory,
-        tempfile.TemporaryFile() as output,
-    ):
+    if review is None:
+        with tempfile.TemporaryDirectory(prefix="ov-claude-") as directory:
+            return await run_claude(
+                [*args, "--no-session-persistence"], directory, packet, tools, timeout
+            )
+    async with review.call(documents, images, model) as record:
+        args.extend(
+            ["--session-id", record["claude_session_id"], "--name", "OpenViking memory review"]
+        )
+        name, payload = await run_claude(args, review.directory, packet, tools, timeout)
+        record["status"] = "read_requested" if name else "proposed"
+        record["tool"] = name or None
+        record["payload"] = payload
+        return name, payload
+
+
+async def run_claude(args, directory, packet, tools, timeout):
+    with tempfile.TemporaryFile() as output:
         process = await asyncio.create_subprocess_exec(
             *args,
             cwd=directory,
