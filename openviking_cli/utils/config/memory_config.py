@@ -40,7 +40,7 @@ class SessionAutoCommitConfig(BaseModel):
     )
 
 
-class CodexProjectEvidence(BaseModel):
+class ProjectEvidence(BaseModel):
     account_id: str = Field(min_length=1)
     user_id: str = Field(min_length=1)
     session_id: str = Field(min_length=1)
@@ -50,18 +50,21 @@ class CodexProjectEvidence(BaseModel):
     @classmethod
     def require_absolute_files(cls, files):
         if any(not path.is_absolute() for path in files):
-            raise ValueError("Codex project evidence paths must be absolute")
+            raise ValueError("Project evidence paths must be absolute")
         return files
 
 
 class MemoryConfig(BaseModel):
     """Memory configuration for OpenViking."""
 
-    session_extractor: Literal["builtin", "codex"] = Field(
+    session_extractor: Literal["builtin", "codex", "claude_code"] = Field(
         default="builtin", description="Agent used for the initial session memory proposal."
     )
     codex_timeout_seconds: int = Field(default=120, ge=1, le=600)
-    codex_project_evidence: list[CodexProjectEvidence] = Field(default_factory=list)
+    codex_project_evidence: list[ProjectEvidence] = Field(default_factory=list)
+    claude_code_timeout_seconds: int = Field(default=120, ge=1, le=600)
+    claude_code_model: str | None = Field(default=None, min_length=1)
+    claude_code_project_evidence: list[ProjectEvidence] = Field(default_factory=list)
 
     summary_budget_retry_enabled: bool = Field(
         default=True,

@@ -16,6 +16,7 @@ import json
 import re
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
+from functools import partial
 from typing import TYPE_CHECKING, Any, List, Optional
 from uuid import uuid4
 
@@ -24,9 +25,14 @@ from openviking.core.context import Context
 from openviking.message import Message
 from openviking.observability.reporting.facts import event_context
 from openviking.server.identity import RequestContext
-from openviking.session.memory import ExtractLoop, MemoryUpdater, StreamingMemoryUpdaterConfig
+from openviking.session.memory import (
+    ExtractLoop,
+    MemoryUpdater,
+    StreamingMemoryUpdaterConfig,
+    claude_code_proposal,
+    codex_proposal,
+)
 from openviking.session.memory.agent_file import ensure_agent_file
-from openviking.session.memory.codex_extract_loop import CodexExtractLoop
 from openviking.session.memory.constants import (
     AGENT_EVOLUTION_MEMORY_TYPES,
     CASE_MEMORY_TYPE,
@@ -42,6 +48,7 @@ from openviking.session.memory.dataclass import (
     ResolvedOperations,
     StoredLink,
 )
+from openviking.session.memory.external_extract_loop import ExternalExtractLoop
 from openviking.session.memory.memory_isolation_handler import MemoryIsolationHandler
 from openviking.session.memory.memory_type_registry import get_default_registry
 from openviking.session.memory.memory_updater import (
@@ -314,20 +321,30 @@ class SessionCompressorV3:
             "context_provider": context_provider,
             "isolation_handler": isolation_handler,
         }
-        if memory_config.session_extractor == "codex":
-            files = [
-                path
-                for binding in memory_config.codex_project_evidence
-                if ctx
-                and session_id
-                and (binding.account_id, binding.user_id, binding.session_id)
-                == (ctx.account_id, ctx.user.user_id, session_id)
-                for path in binding.files
-            ]
-            return CodexExtractLoop(
-                **loop_args, files=files, timeout=memory_config.codex_timeout_seconds
+        if memory_config.session_extractor == "builtin":
+            return ExtractLoop(**loop_args)
+        if memory_config.session_extractor == "claude_code":
+            propose = partial(
+                claude_code_proposal.request_proposal, model=memory_config.claude_code_model
             )
-        return ExtractLoop(**loop_args)
+            bindings = memory_config.claude_code_project_evidence
+            timeout = memory_config.claude_code_timeout_seconds
+        else:
+            propose = codex_proposal.request_proposal
+            bindings = memory_config.codex_project_evidence
+            timeout = memory_config.codex_timeout_seconds
+        files = [
+            path
+            for binding in bindings
+            if ctx
+            and session_id
+            and (binding.account_id, binding.user_id, binding.session_id)
+            == (ctx.account_id, ctx.user.user_id, session_id)
+            for path in binding.files
+        ]
+        return ExternalExtractLoop(
+            **loop_args, files=files, timeout=timeout, request_proposal=propose
+        )
 
     def _get_or_create_updater(self, registry, transaction_handle=None) -> MemoryUpdater:
         return MemoryUpdater(
